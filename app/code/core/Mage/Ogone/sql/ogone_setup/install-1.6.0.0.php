@@ -24,39 +24,5 @@
  * @license     http://opensource.org/licenses/osl-3.0.php  Open Software License (OSL 3.0)
  */
 
-/**
- * Ogone data helper
- */
-class Mage_Ogone_Helper_Data extends Mage_Core_Helper_Abstract
-{
-    /**
-     * @deprecated after 1.4.2.0-beta1
-     * @see Mage_Ogone_Model_Api::HASH_ALGO_SHA1
-     */
-    const HASH_ALGO = 'sha1';
-
-    /**
-     * @deprecated after 1.4.2.0-beta1
-     * @see Mage_Ogone_Model_Api::getHash()
-     * @param array $data
-     * @param string $key
-     * @return string
-     */
-    public function shaCrypt($data, $key = '')
-    {
-        return '';
-    }
-
-    /**
-     * @deprecated after 1.4.2.0-beta1
-     * @see Mage_Ogone_Model_Api::getHash()
-     * @param array $data
-     * @param string $hash
-     * @param string $key
-     * @return bool
-     */
-    public function shaCryptValidation($data, $hash, $key='')
-    {
-        return false;
-    }
-}
+$installer = $this;
+/* @var $installer Mage_Core_Model_Resource_Setup */

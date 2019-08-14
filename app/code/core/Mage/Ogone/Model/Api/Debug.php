@@ -20,13 +20,15 @@
  *
  * @category    Mage
  * @package     Mage_Ogone
- * @copyright   Copyright (c) 2009 Irubin Consulting Inc. DBA Varien (http://www.varien.com)
+ * @copyright   Copyright (c) 2012 Magento Inc. (http://www.magentocommerce.com)
  * @license     http://opensource.org/licenses/osl-3.0.php  Open Software License (OSL 3.0)
  */
 
 /**
  * Ogone debug model
- */   
+ *
+ * @deprecated - used core/log_adapter for debugging
+ */
 class Mage_Ogone_Model_Api_Debug extends Mage_Core_Model_Abstract
 {
     /**

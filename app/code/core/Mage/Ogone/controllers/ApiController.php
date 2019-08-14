@@ -20,7 +20,7 @@
  *
  * @category    Mage
  * @package     Mage_Ogone
- * @copyright   Copyright (c) 2009 Irubin Consulting Inc. DBA Varien (http://www.varien.com)
+ * @copyright   Copyright (c) 2012 Magento Inc. (http://www.magentocommerce.com)
  * @license     http://opensource.org/licenses/osl-3.0.php  Open Software License (OSL 3.0)
  */
 
@@ -76,26 +76,32 @@ class Mage_Ogone_ApiController extends Mage_Core_Controller_Front_Action
      */
     protected function _validateOgoneData()
     {
-        if ($this->_getApi()->getDebug()) {
-            $debug = Mage::getModel('ogone/api_debug')
-                ->setDir('in')
-                ->setUrl($this->getRequest()->getPathInfo())
-                ->setData('data',http_build_query($this->getRequest()->getParams()))
-                ->save();
+        $params = $this->getRequest()->getParams();
+        $api = $this->_getApi();
+        $api->debugData(array('result' => $params));
+
+        $hashValidationResult = false;
+        if ($api->getConfig()->getShaInCode()) {
+            $referenceHash = $api->getHash(
+                $params,
+                $api->getConfig()->getShaInCode(),
+                Mage_Ogone_Model_Api::HASH_DIR_IN,
+                (int)$api->getConfig()->getConfigData('shamode'),
+                $api->getConfig()->getConfigData('hashing_algorithm')
+            );
+            if ($params['SHASIGN'] == $referenceHash) {
+                $hashValidationResult = true;
+            }
         }
 
-        $params = $this->getRequest()->getParams();
-        $secureKey = $this->_getApi()->getConfig()->getShaInCode();
-        $secureSet = $this->_getSHAInSet($params, $secureKey);
-
-        if (Mage::helper('ogone')->shaCryptValidation($secureSet, $params['SHASIGN'])!=true) {
-            $this->_getCheckout()->addError($this->__('Hash is not valid'));
+        if (!$hashValidationResult) {
+            $this->_getCheckout()->addError($this->__('The hash is not valid'));
             return false;
         }
 
         $order = $this->_getOrder();
         if (!$order->getId()){
-            $this->_getCheckout()->addError($this->__('Order is not valid'));
+            $this->_getCheckout()->addError($this->__('The order is not valid'));
             return false;
         }
 
@@ -112,16 +118,14 @@ class Mage_Ogone_ApiController extends Mage_Core_Controller_Front_Action
             $order = Mage::getModel('sales/order');
             $order->loadByIncrementId($lastIncrementId);
             if ($order->getId()) {
-                $order->setState(Mage_Sales_Model_Order::STATE_PENDING_PAYMENT, Mage_Ogone_Model_Api::PENDING_OGONE_STATUS, Mage::helper('ogone')->__('Start ogone processing'));
+                $order->setState(
+                    Mage_Sales_Model_Order::STATE_PENDING_PAYMENT,
+                    Mage_Ogone_Model_Api::PENDING_OGONE_STATUS,
+                    Mage::helper('ogone')->__('Start Ogone Processing')
+                );
                 $order->save();
 
-                if ($this->_getApi()->getDebug()) {
-                    $debug = Mage::getModel('ogone/api_debug')
-                        ->setDir('out')
-                        ->setUrl($this->getRequest()->getPathInfo())
-                        ->setData('data', http_build_query($this->_getApi()->getFormFields($order)))
-                        ->save();
-                }
+                $this->_getApi()->debugOrder($order);
             }
         }
 
@@ -135,7 +139,7 @@ class Mage_Ogone_ApiController extends Mage_Core_Controller_Front_Action
     }
 
     /**
-     * Display our pay page, need to ogone payment with external pay page mode     *
+     * Display our pay page, need to ogone payment with external pay page mode
      */
     public function paypageAction()
     {
@@ -219,20 +223,31 @@ class Mage_Ogone_ApiController extends Mage_Core_Controller_Front_Action
     {
         $params = $this->getRequest()->getParams();
         $order = $this->_getOrder();
+        if (!$this->_isOrderValid($order)) {
+            return;
+        }
 
         $this->_getCheckout()->setLastSuccessQuoteId($order->getQuoteId());
 
         $this->_prepareCCInfo($order, $params);
         $order->getPayment()->setTransactionId($params['PAYID']);
+        $order->getPayment()->setLastTransId($params['PAYID']);
 
-        try{
-            if ($this->_getApi()->getPaymentAction()==Mage_Payment_Model_Method_Abstract::ACTION_AUTHORIZE_CAPTURE) {
-                $this->_processDirectSale();
-            } else {
-                $this->_processAuthorize();
-            }
-        }catch(Exception $e) {
-            $this->_getCheckout()->addError(Mage::helper('ogone')->__('Order can\'t save'));
+        try {
+            $status = $this->getRequest()->getParam('STATUS');
+            switch ($status) {
+                case Mage_Ogone_Model_Api::OGONE_AUTHORIZED:
+                case Mage_Ogone_Model_Api::OGONE_AUTH_PROCESSING:
+                    $this->_processAuthorize();
+                    break;
+                case Mage_Ogone_Model_Api::OGONE_PAYMENT_REQUESTED_STATUS:
+                    $this->_processDirectSale();
+                    break;
+                default:
+                    throw new Exception (Mage::helper('ogone')->__('Can\'t detect Ogone payment action'));
+             }
+        } catch(Exception $e) {
+            $this->_getCheckout()->addError(Mage::helper('ogone')->__('The order cannot be saved.'));
             $this->_redirect('checkout/cart');
             return;
         }
@@ -248,15 +263,27 @@ class Mage_Ogone_ApiController extends Mage_Core_Controller_Front_Action
         $status = $this->getRequest()->getParam('STATUS');
         try{
             if ($status ==  Mage_Ogone_Model_Api::OGONE_AUTH_PROCESSING) {
-                $order->setState(Mage_Sales_Model_Order::STATE_PROCESSING, Mage_Ogone_Model_Api::WAITING_AUTHORIZATION, Mage::helper('ogone')->__('Authorization Waiting from Ogone'));
+                $order->setState(
+                    Mage_Sales_Model_Order::STATE_PROCESSING,
+                    Mage_Ogone_Model_Api::WAITING_AUTHORIZATION,
+                    Mage::helper('ogone')->__('Authorization Waiting from Ogone')
+                );
                 $order->save();
             }elseif ($order->getState()==Mage_Sales_Model_Order::STATE_PENDING_PAYMENT) {
                 if ($status ==  Mage_Ogone_Model_Api::OGONE_AUTHORIZED) {
                     if ($order->getStatus() != Mage_Sales_Model_Order::STATE_PENDING_PAYMENT) {
-                        $order->setState(Mage_Sales_Model_Order::STATE_PROCESSING, Mage_Ogone_Model_Api::PROCESSING_OGONE_STATUS, Mage::helper('ogone')->__('Processed by Ogone'));
+                        $order->setState(
+                            Mage_Sales_Model_Order::STATE_PROCESSING,
+                            Mage_Ogone_Model_Api::PROCESSING_OGONE_STATUS,
+                            Mage::helper('ogone')->__('Processed by Ogone')
+                        );
                     }
                 } else {
-                    $order->setState(Mage_Sales_Model_Order::STATE_PROCESSING, Mage_Ogone_Model_Api::PROCESSED_OGONE_STATUS, Mage::helper('ogone')->__('Processed by Ogone'));
+                    $order->setState(
+                        Mage_Sales_Model_Order::STATE_PROCESSING,
+                        Mage_Ogone_Model_Api::PROCESSED_OGONE_STATUS,
+                        Mage::helper('ogone')->__('Processed by Ogone')
+                    );
                 }
 
                 if (!$order->getInvoiceCollection()->getSize()) {
@@ -293,13 +320,21 @@ class Mage_Ogone_ApiController extends Mage_Core_Controller_Front_Action
         $status = $this->getRequest()->getParam('STATUS');
         try {
             if ($status ==  Mage_Ogone_Model_Api::OGONE_AUTH_PROCESSING) {
-                $order->setState(Mage_Sales_Model_Order::STATE_PROCESSING, Mage_Ogone_Model_Api::WAITING_AUTHORIZATION, Mage::helper('ogone')->__('Authorization Waiting from Ogone'));
+                $order->setState(
+                    Mage_Sales_Model_Order::STATE_PROCESSING,
+                    Mage_Ogone_Model_Api::WAITING_AUTHORIZATION,
+                    Mage::helper('ogone')->__('Authorization Waiting from Ogone')
+                );
             } else {
                 //to send new order email only when state is pending payment
                 if ($order->getState()==Mage_Sales_Model_Order::STATE_PENDING_PAYMENT) {
                     $order->sendNewOrderEmail();
                 }
-                $order->setState(Mage_Sales_Model_Order::STATE_PROCESSING, Mage_Ogone_Model_Api::PROCESSED_OGONE_STATUS, Mage::helper('ogone')->__('Processed by Ogone'));
+                $order->setState(
+                    Mage_Sales_Model_Order::STATE_PROCESSING,
+                    Mage_Ogone_Model_Api::PROCESSED_OGONE_STATUS,
+                    Mage::helper('ogone')->__('Processed by Ogone')
+                );
             }
             $order->save();
             $this->_redirect('checkout/onepage/success');
@@ -353,6 +388,9 @@ class Mage_Ogone_ApiController extends Mage_Core_Controller_Front_Action
     {
         $params = $this->getRequest()->getParams();
         $order = $this->_getOrder();
+        if (!$this->_isOrderValid($order)) {
+            return;
+        }
 
         $exception = '';
         switch($params['STATUS']) {
@@ -374,13 +412,16 @@ class Mage_Ogone_ApiController extends Mage_Core_Controller_Front_Action
                 //to send new order email only when state is pending payment
                 if ($order->getState()==Mage_Sales_Model_Order::STATE_PENDING_PAYMENT) {
                     $order->sendNewOrderEmail();
-                    $order->setState(Mage_Sales_Model_Order::STATE_PROCESSING, Mage_Ogone_Model_Api::PROCESSING_OGONE_STATUS, $exception);
+                    $order->setState(
+                        Mage_Sales_Model_Order::STATE_PROCESSING, Mage_Ogone_Model_Api::PROCESSING_OGONE_STATUS,
+                        $exception
+                    );
                 } else {
                     $order->addStatusToHistory(Mage_Ogone_Model_Api::PROCESSING_OGONE_STATUS, $exception);
                 }
                 $order->save();
             }catch(Exception $e) {
-                $this->_getCheckout()->addError(Mage::helper('ogone')->__('Order can not be save for system reason'));
+                $this->_getCheckout()->addError(Mage::helper('ogone')->__('The order cannot be saved for a system reason.'));
             }
         } else {
             $this->_getCheckout()->addError(Mage::helper('ogone')->__('Exception not defined'));
@@ -412,7 +453,7 @@ class Mage_Ogone_ApiController extends Mage_Core_Controller_Front_Action
     protected function _declineProcess()
     {
         $status     = Mage_Ogone_Model_Api::DECLINE_OGONE_STATUS;
-        $comment    = Mage::helper('ogone')->__('Declined Order on ogone side');
+        $comment    = Mage::helper('ogone')->__('Declined Order on Ogone side.');
         $this->_getCheckout()->addError(Mage::helper('ogone')->__('Payment transaction has been declined.'));
         $this->_cancelOrder($status, $comment);
     }
@@ -443,7 +484,7 @@ class Mage_Ogone_ApiController extends Mage_Core_Controller_Front_Action
     public function _cancelProcess()
     {
         $status     = Mage_Ogone_Model_Api::CANCEL_OGONE_STATUS;
-        $comment    = Mage::helper('ogone')->__('Order canceled on ogone side');
+        $comment    = Mage::helper('ogone')->__('The order was canceled on ogone side.');
         $this->_cancelOrder($status, $comment);
         return $this;
     }
@@ -456,12 +497,16 @@ class Mage_Ogone_ApiController extends Mage_Core_Controller_Front_Action
     protected function _cancelOrder($status, $comment='')
     {
         $order = $this->_getOrder();
+        if (!$this->_isOrderValid($order)) {
+            return;
+        }
+
         try{
             $order->cancel();
             $order->setState(Mage_Sales_Model_Order::STATE_CANCELED, $status, $comment);
             $order->save();
         }catch(Exception $e) {
-            $this->_getCheckout()->addError(Mage::helper('ogone')->__('Order can not be canceled for system reason'));
+            $this->_getCheckout()->addError(Mage::helper('ogone')->__('The order cannot be canceled for a system reason.'));
         }
 
         $this->_redirect('checkout/cart');
@@ -469,24 +514,23 @@ class Mage_Ogone_ApiController extends Mage_Core_Controller_Front_Action
     }
 
     /**
-     * Return set of data which is ready for SHA crypt
+     * Check order payment method
      *
-     * @param array $data
-     * @param string $key
-     *
+     * @param Mage_Sales_Model_Order $order
+     * @return bool
+     */
+    protected function _isOrderValid($order)
+    {
+        return Mage_Ogone_Model_Api::PAYMENT_CODE == $order->getPayment()->getMethodInstance()->getCode();
+    }
+
+    /**
+     * @deprecated after 1.4.2.0-beta1
+     * @see Mage_Ogone_Model_Api::$_inShortMap
      * @return string
      */
     protected function _getSHAInSet($params, $key)
     {
-        return $this->getRequest()->getParam('orderID') .
-               $this->getRequest()->getParam('currency') .
-               $this->getRequest()->getParam('amount') .
-               $this->getRequest()->getParam('PM') .
-               $this->getRequest()->getParam('ACCEPTANCE') .
-               $this->getRequest()->getParam('STATUS') .
-               $this->getRequest()->getParam('CARDNO') .
-               $this->getRequest()->getParam('PAYID') .
-               $this->getRequest()->getParam('NCERROR') .
-               $this->getRequest()->getParam('BRAND') . $key;
+        return '';
     }
 }
