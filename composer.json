@@ -1,16 +1,19 @@
 {
-    "name": "OpenMageModuleFostering/Mage_Ogone_Official",
+    "name": "OpenMageModuleFostering\/Mage_Ogone_Official",
     "type": "magento-module",
     "license": "Open-Software-License-(OSL-3.0)",
     "homepage": "",
     "description": "Official Ogone Payment Services Integration Module",
     "authors": [
-    {
-        "name": "Magento Core Team",
-        "email": "core@magentocommerce.com"
-    }
-],
+        {
+            "name": "Magento Core Team",
+            "email": "core@magentocommerce.com"
+        }
+    ],
     "suggest": {
-        "magento-hackathon/magento-composer-installer": "*"
-    }
+        "magento-hackathon\/magento-composer-installer": "*"
+    },
+    "keywords": [
+        "openmage-module"
+    ]
 }
