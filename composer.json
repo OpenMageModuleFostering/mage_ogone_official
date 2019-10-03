@@ -1,7 +1,7 @@
 {
-    "name": "OpenMageModuleFostering\/Mage_Ogone_Official",
+    "name": "openmage-module-fostering\/mage_ogone_official",
     "type": "magento-module",
-    "license": "Open-Software-License-(OSL-3.0)",
+    "license": "OSL-3.0",
     "homepage": "",
     "description": "Official Ogone Payment Services Integration Module",
     "authors": [
